@@ -1,6 +1,19 @@
 // Bilibili Single Tab - 站内链接当前标签页打开
 // 在页面世界(MAIN)运行，可拦截 window.open
 
+// ===== 启用 bfcache（往返缓存）：让"返回"零刷新 =====
+// B站页面注册了 unload/beforeunload 监听（统计上报用），这会阻止浏览器把页面
+// 存入 bfcache，导致从视频页返回主页时必须重新加载整个页面。
+// 在页面脚本执行前劫持 addEventListener，过滤掉这两个事件注册，
+// 让浏览器可以缓存主页 → 返回时从内存瞬间恢复，滚动位置/内容原样保留。
+(function () {
+  const origAdd = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (type === 'unload' || type === 'beforeunload') return undefined;
+    return origAdd.call(this, type, listener, options);
+  };
+})();
+
 const INTERNAL_HOST = /(^|\.)bilibili\.com$/i;
 
 function isInternal(url) {
@@ -66,9 +79,13 @@ function isHomePage() {
 }
 
 if (isHomePage()) {
-  // 离开主页（点视频、整页导航）前保存滚动位置
-  window.addEventListener('pagehide', () => {
-    sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+  // 离开主页前保存滚动位置；若页面进入 bfcache（往返缓存）则无需保存，返回时原样恢复
+  window.addEventListener('pagehide', (e) => {
+    if (e.persisted) {
+      sessionStorage.removeItem(SCROLL_KEY);
+    } else {
+      sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+    }
   });
 
   // 仅"浏览器返回/前进"导航时恢复；直接点 logo 回主页、刷新都不恢复
