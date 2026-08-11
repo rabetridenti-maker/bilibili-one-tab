@@ -3,6 +3,12 @@
   "name": "Bilibili Single Tab",
   "version": "1.1.0",
   "description": "让B站站内链接都在当前标签页打开，像YouTube一样只保留一个B站标签页。站外链接不受影响。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.bilibili.com/*", "*://b23.tv/*"],
