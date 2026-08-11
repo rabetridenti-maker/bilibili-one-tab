@@ -1,18 +1,10 @@
 // Bilibili Single Tab - 站内链接当前标签页打开
 // 在页面世界(MAIN)运行，可拦截 window.open
 
-// ===== 启用 bfcache（往返缓存）：让"返回"零刷新 =====
-// B站页面注册了 unload/beforeunload 监听（统计上报用），这会阻止浏览器把页面
-// 存入 bfcache，导致从视频页返回主页时必须重新加载整个页面。
-// 在页面脚本执行前劫持 addEventListener，过滤掉这两个事件注册，
-// 让浏览器可以缓存主页 → 返回时从内存瞬间恢复，滚动位置/内容原样保留。
-(function () {
-  const origAdd = EventTarget.prototype.addEventListener;
-  EventTarget.prototype.addEventListener = function (type, listener, options) {
-    if (type === 'unload' || type === 'beforeunload') return undefined;
-    return origAdd.call(this, type, listener, options);
-  };
-})();
+// 注：曾尝试拦截 unload 监听以启用 bfcache（往返缓存）实现零刷新返回，
+// 但 B站首页是虚拟列表+无限滚动，bfcache 恢复的只是 DOM 快照，
+// 滚动区域的数据状态不会重建，导致返回后每屏重新加载、滚动卡顿。
+// 因此放弃 bfcache，采用"整页重载 + 恢复滚动位置"方案（体验更顺滑）。
 
 const INTERNAL_HOST = /(^|\.)bilibili\.com$/i;
 
@@ -95,16 +87,30 @@ if (isHomePage()) {
     if (saved !== null) {
       sessionStorage.removeItem(SCROLL_KEY);
       const target = Math.max(0, parseInt(saved, 10) || 0);
-      let attempts = 0;
-      const restore = () => {
-        window.scrollTo(0, target);
-        // B站首页是懒加载，内容不足时等待加载后重试
-        if (document.documentElement.scrollHeight < target + window.innerHeight && attempts < 30) {
-          attempts++;
-          setTimeout(restore, 400);
+
+      // 先等首屏视频卡片渲染出来，避免滚到空白区域
+      let waitCount = 0;
+      const waitForFirstRender = () => {
+        const hasCards = document.querySelector(
+          '.bili-video-card, .feed-card, [class*="video-card"], [class*="feed-card"]'
+        );
+        if (hasCards || waitCount > 20) {
+          let attempts = 0;
+          const restore = () => {
+            window.scrollTo(0, target);
+            // B站首页是懒加载，内容高度不足时等待加载后重试定位
+            if (document.documentElement.scrollHeight < target + window.innerHeight && attempts < 30) {
+              attempts++;
+              setTimeout(restore, 400);
+            }
+          };
+          setTimeout(restore, 100);
+        } else {
+          waitCount++;
+          setTimeout(waitForFirstRender, 250);
         }
       };
-      setTimeout(restore, 50);
+      waitForFirstRender();
     }
   }
 }
