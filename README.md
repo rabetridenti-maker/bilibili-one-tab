@@ -1,18 +1,15 @@
 # Bilibili Single Tab
 
-让 B站站内链接都在**当前标签页**打开，像 YouTube 一样只保留一个 B站标签页。
+主页标签**常驻不动**，视频在**独立的单个标签**中打开——B站最多占用两个标签：主页 + 当前视频。
 
 ## 功能
 
-- B站站内点击视频 / 番剧 / 直播 / 动态 → 当前标签页直接跳转，不新开标签
-- **主页滚动位置记忆**：从主页点进视频，返回主页时自动恢复滚动位置（等首屏渲染完成后再定位，避免跳动）
-- B站里点击外链（跳转淘宝、微博等其他网站）→ 照常新开标签，不受影响
-
-> 为什么不用 bfcache（往返缓存）实现零刷新返回？B站首页是虚拟列表 + 无限滚动，
-> bfcache 恢复的只是 DOM 快照，滚动区域的数据状态不会重建，返回后每屏都会重新加载、
-> 滚动卡顿。因此采用"整页重载 + 恢复滚动位置"，重载约 1 秒，换来全程顺滑的滚动体验。
+- **主页永驻**：主页上点视频 / 番剧 / 直播 / 动态，主页自身永不导航，滚动位置与内容原样保留
+- **视频标签复用**：只有一个视频标签；再点其他视频时，自动导航已有视频标签（不会越开越多）
+- **回退即回主页**：关闭视频标签（或点 B站 logo 回主页），主页瞬间可见，状态零丢失
+- **主页单例兜底**：任何方式（含视频标签内手动输入网址）导航到主页时，若已有主页标签则自动关闭多余标签
+- 外链（跳转淘宝、微博等其他网站）照常新开标签，不受影响
 - 支持 `bilibili.com` 全子域名和 `b23.tv` 短链
-- SPA 动态加载的内容也能覆盖（MutationObserver 持续监听）
 
 ## 安装（Edge / Chrome）
 
@@ -24,21 +21,25 @@
 ## 文件结构
 
 ```
-manifest.json   # MV3 扩展声明，content script 以 MAIN world 注入
-content.js      # 核心逻辑：改写 target="_blank" + 拦截 window.open
+manifest.json     # MV3 声明：background + 双 content script（MAIN / isolated）
+background.js     # 视频标签复用 + 主页单例兜底（tabs 操作）
+content-main.js   # MAIN world：拦截主页站内链接点击与 window.open
+content-bridge.js # isolated world：postMessage → chrome.runtime 消息桥
 ```
 
 ## 原理
 
-- content script 以 `world: "MAIN"` 注入页面世界，可拦截 `window.open`
-- 移除站内链接的 `target="_blank"` 属性 → 点击即当前页导航
-- 拦截 `window.open`：站内 URL 改为 `location.href` 跳转，站外 URL 放行
-- `MutationObserver` 监听 DOM 变化，覆盖 B站 SPA 滚动加载的内容
+1. MAIN world 脚本捕获主页上的站内链接点击（capture 阶段 `preventDefault`），并拦截 `window.open` 站内 URL
+2. 通过 `window.postMessage` 把目标 URL 交给 isolated world 桥接脚本
+3. 桥接脚本转发 `chrome.runtime.sendMessage` 给 background
+4. background 在当前窗口查找已有视频标签：有则 `tabs.update` 导航并聚焦，无则新建
+5. 主页单例兜底：`tabs.onUpdated` 检测任何标签导航到主页 URL 且已有主页标签时，关闭多余标签
 
 ## 限制
 
-- 中键 / Ctrl+点击仍会新开标签（浏览器原生行为，无法拦截）
-- 从站外（搜索引擎、聊天工具）点击 B站链接仍会新开标签（扩展只运行在 B站页面内）
+- 中键 / Ctrl+点击仍会新开标签（浏览器原生行为，无法拦截），此时可能出现临时重复标签，主页单例兜底会处理主页重复
+- 复用视频标签会覆盖上一个视频的播放进度
+- 从站外（搜索引擎、聊天工具）点 B站视频链接：若已有视频标签则复用，否则新建（与主页共用同一套单例逻辑）
 
 ## License
 

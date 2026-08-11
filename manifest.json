@@ -1,18 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Bilibili Single Tab",
-  "version": "1.3.0",
-  "description": "让B站站内链接都在当前标签页打开，像YouTube一样只保留一个B站标签页。站外链接不受影响。",
+  "version": "2.0.0",
+  "description": "主页标签常驻不动，视频在独立的单个标签中打开。B站最多占用两个标签：主页 + 当前视频。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "permissions": ["tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.bilibili.com/*", "*://b23.tv/*"],
-      "js": ["content.js"],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.bilibili.com/*", "*://b23.tv/*"],
+      "js": ["content-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
     }
