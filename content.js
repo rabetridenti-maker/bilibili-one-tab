@@ -50,3 +50,44 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// ===== 主页滚动位置记忆（从视频页返回时恢复）=====
+// B站主页 → 视频页是整页导航，返回时主页重新加载会丢失滚动位置。
+// 这里在离开主页前记录位置，仅在"前进/后退"导航返回主页时恢复。
+const SCROLL_KEY = 'bili-single-tab:home-scroll';
+
+function isHomePage() {
+  try {
+    const u = new URL(location.href);
+    return u.hostname === 'www.bilibili.com' && u.pathname === '/';
+  } catch {
+    return false;
+  }
+}
+
+if (isHomePage()) {
+  // 离开主页（点视频、整页导航）前保存滚动位置
+  window.addEventListener('pagehide', () => {
+    sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+  });
+
+  // 仅"浏览器返回/前进"导航时恢复；直接点 logo 回主页、刷新都不恢复
+  const navType = performance.getEntriesByType('navigation')[0]?.type;
+  if (navType === 'back_forward') {
+    const saved = sessionStorage.getItem(SCROLL_KEY);
+    if (saved !== null) {
+      sessionStorage.removeItem(SCROLL_KEY);
+      const target = Math.max(0, parseInt(saved, 10) || 0);
+      let attempts = 0;
+      const restore = () => {
+        window.scrollTo(0, target);
+        // B站首页是懒加载，内容不足时等待加载后重试
+        if (document.documentElement.scrollHeight < target + window.innerHeight && attempts < 30) {
+          attempts++;
+          setTimeout(restore, 400);
+        }
+      };
+      setTimeout(restore, 50);
+    }
+  }
+}

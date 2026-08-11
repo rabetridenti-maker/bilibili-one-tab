@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bilibili Single Tab",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "让B站站内链接都在当前标签页打开，像YouTube一样只保留一个B站标签页。站外链接不受影响。",
   "content_scripts": [
     {
