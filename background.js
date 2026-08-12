@@ -48,13 +48,19 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   });
 });
 
-// 主页单例兜底：任何标签导航到主页时，若已有主页标签则关闭新来的那个
-// （覆盖"视频标签内手动输入 bilibili.com"等未走消息通道的场景）
+// 主页单例兜底 + 自动固定：
+// - 任何标签导航到主页时，若已有主页标签则关闭新来的那个
+//   （覆盖"视频标签内手动输入 bilibili.com"等未走消息通道的场景）
+// - 唯一的主页标签自动固定（pin）在标签栏左侧，常驻后台
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'loading' || !tab.url) return;
   if (classify(tab.url) !== 'home') return;
   chrome.tabs.query({ currentWindow: true }, (tabs) => {
     const other = tabs.find((t) => t.id !== tabId && classify(t.url) === 'home');
-    if (other) chrome.tabs.remove(tabId);
+    if (other) {
+      chrome.tabs.remove(tabId);
+    } else if (!tab.pinned) {
+      chrome.tabs.update(tabId, { pinned: true });
+    }
   });
 });
