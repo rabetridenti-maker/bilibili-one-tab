@@ -34,7 +34,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         chrome.tabs.create({ url: msg.url, active: true });
       }
     } else {
-      // focusHome：聚焦已有主页标签，没有则新建
+      // focusHome：让来源标签暂停视频，然后聚焦已有主页标签；没有主页标签则新建
+      if (sender.tab) {
+        chrome.tabs.sendMessage(sender.tab.id, { type: 'pauseVideo' }).catch(() => {});
+      }
       const homeTab = findTab(tabs, 'home');
       if (homeTab) {
         chrome.tabs.update(homeTab.id, { active: true });
