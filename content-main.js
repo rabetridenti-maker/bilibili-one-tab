@@ -31,18 +31,32 @@ function request(type, url) {
   window.postMessage({ source: BST_SOURCE, type, url }, '*');
 }
 
-// 主页上的站内链接点击：交给 background 复用视频标签（主页自身永不导航）
+// 拦截站内链接点击：
+// - 任何页面点击"回主页"链接（logo 等）→ focusHome：聚焦已有主页标签，当前标签保留
+// - 主页点击其他站内链接 → openVideo：复用视频标签（主页自身永不导航）
+// - 视频页点击其他站内链接 → 放行默认导航（在视频标签内切换）
 document.addEventListener(
   'click',
   (e) => {
-    if (!isHomePage()) return;
     const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
     if (!a) return;
     const raw = a.getAttribute('href');
     if (!raw || !isInternal(raw)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    request('openVideo', new URL(raw, location.href).href);
+    const url = new URL(raw, location.href).href;
+
+    if (isHomeUrl(url)) {
+      // 目标是主页：聚焦已有主页标签，不导航当前标签
+      e.preventDefault();
+      e.stopPropagation();
+      request('focusHome', url);
+      return;
+    }
+    if (isHomePage()) {
+      // 主页上点视频等站内链接：复用视频标签
+      e.preventDefault();
+      e.stopPropagation();
+      request('openVideo', url);
+    }
   },
   true
 );
