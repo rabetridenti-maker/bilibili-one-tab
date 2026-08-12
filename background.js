@@ -30,8 +30,8 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         // 已有视频标签：导航过去并聚焦
         chrome.tabs.update(contentTab.id, { url: msg.url, active: true });
       } else {
-        // 没有视频标签：新建
-        chrome.tabs.create({ url: msg.url, active: true });
+        // 没有视频标签：新建并固定（pin）在后台，常驻不丢
+        chrome.tabs.create({ url: msg.url, active: true, pinned: true });
       }
     } else {
       // focusHome：让来源标签暂停视频，然后聚焦已有主页标签；没有主页标签则新建
