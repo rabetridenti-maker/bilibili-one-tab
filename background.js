@@ -1,8 +1,9 @@
-// Bilibili Single Tab v2.1 - background service worker
+// Bilibili Single Tab v2.1.4 - background service worker
 // 职责：
-// - 主页标签单例（兜底）+ 自动固定
 // - 前台视频槽位（复用，Pin）
 // - 后台播放槽位（#bst-bg 标记，Pin 不聚焦）——刷视频的同时后台放音乐
+// - focusHome：聚焦已有主页标签（仅聚焦，不固定、不关闭、不单例）
+// 主页标签完全交给用户/浏览器管理，扩展不主动操作主页标签。
 
 const BG_HASH = '#bst-bg';
 
@@ -74,23 +75,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       } else {
         chrome.tabs.create({ url: 'https://www.bilibili.com/', active: true });
       }
-    }
-  });
-});
-
-// 主页单例兜底 + 自动固定：
-// - 任何标签导航到主页时，若已有主页标签则关闭新来的那个
-//   （覆盖"视频标签内手动输入 bilibili.com"等未走消息通道的场景）
-// - 唯一的主页标签自动固定（pin）在标签栏左侧，常驻后台
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'loading' || !tab.url) return;
-  if (classify(tab.url) !== 'home') return;
-  chrome.tabs.query({ currentWindow: true }, (tabs) => {
-    const other = tabs.find((t) => t.id !== tabId && classify(t.url) === 'home');
-    if (other) {
-      chrome.tabs.remove(tabId);
-    } else if (!tab.pinned) {
-      chrome.tabs.update(tabId, { pinned: true });
     }
   });
 });
