@@ -70,3 +70,41 @@ window.open = function (url, name, features) {
   }
   return origOpen.apply(this, arguments);
 };
+
+// ===== 视频页"后台播放"按钮 =====
+// 把当前视频放进后台槽位（Pin、不聚焦），前台继续刷视频/干别的，后台照常放
+function injectBgPlayButton() {
+  if (isHomePage() || document.getElementById('bst-bgplay-btn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'bst-bgplay-btn';
+  btn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
+  Object.assign(btn.style, {
+    position: 'fixed',
+    right: '16px',
+    bottom: '100px',
+    zIndex: '2147483647',
+    background: '#00A1D6',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '999px',
+    padding: '8px 14px',
+    fontSize: '13px',
+    cursor: 'pointer',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+    fontFamily: 'inherit',
+  });
+  btn.addEventListener('click', () => {
+    request('bgPlay', location.href);
+    btn.textContent = '✓ 已加入后台';
+    setTimeout(() => {
+      btn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
+    }, 1500);
+  });
+  (document.body || document.documentElement).appendChild(btn);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectBgPlayButton, { once: true });
+} else {
+  injectBgPlayButton();
+}

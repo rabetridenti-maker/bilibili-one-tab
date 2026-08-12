@@ -6,7 +6,7 @@ window.addEventListener('message', (e) => {
   if (
     d &&
     d.source === 'bilibili-single-tab' &&
-    (d.type === 'openVideo' || d.type === 'focusHome')
+    (d.type === 'openVideo' || d.type === 'bgPlay' || d.type === 'focusHome')
   ) {
     chrome.runtime.sendMessage({ type: d.type, url: d.url });
   }
