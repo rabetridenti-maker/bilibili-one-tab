@@ -72,25 +72,25 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       if (homeTab) {
         chrome.tabs.update(homeTab.id, { active: true });
       } else {
-        chrome.tabs.create({ url: 'https://www.bilibili.com/', active: true, pinned: true });
+        chrome.tabs.create({ url: 'https://www.bilibili.com/', active: true });
       }
     }
   });
 });
 
-// 主页标签自动固定（onUpdated 兜底）：主页加载时自动 Pin
-// 注意：绝不主动关闭任何标签（曾有过"清理多余主页"逻辑，误关用户标签，已移除）
+// 主页单例兜底 + 自动固定：
+// - 任何标签导航到主页时，若已有主页标签则关闭新来的那个
+//   （覆盖"视频标签内手动输入 bilibili.com"等未走消息通道的场景）
+// - 唯一的主页标签自动固定（pin）在标签栏左侧，常驻后台
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'loading' || !tab.url) return;
   if (classify(tab.url) !== 'home') return;
-  if (!tab.pinned) chrome.tabs.update(tabId, { pinned: true });
-});
-
-// 启动扫描（service worker 每次唤醒时执行）：
-// 覆盖"扩展更新前就已打开的主页标签"——onUpdated 不会对它们触发。
-// 只做自动固定，不做任何关闭操作。
-chrome.tabs.query({}, (tabs) => {
-  tabs.forEach((t) => {
-    if (classify(t.url) === 'home' && !t.pinned) chrome.tabs.update(t.id, { pinned: true });
+  chrome.tabs.query({ currentWindow: true }, (tabs) => {
+    const other = tabs.find((t) => t.id !== tabId && classify(t.url) === 'home');
+    if (other) {
+      chrome.tabs.remove(tabId);
+    } else if (!tab.pinned) {
+      chrome.tabs.update(tabId, { pinned: true });
+    }
   });
 });
