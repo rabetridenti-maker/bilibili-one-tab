@@ -54,7 +54,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       if (contentTab) {
         chrome.tabs.update(contentTab.id, { url: msg.url, active: true });
       } else {
-        chrome.tabs.create({ url: msg.url, active: true, pinned: true });
+        chrome.tabs.create({ url: msg.url, active: true });
       }
     } else if (msg.type === 'bgPlay') {
       // 后台槽位：复用 #bst-bg 标签（不聚焦）；没有则新建（Pin、后台打开）
@@ -62,7 +62,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       if (bgTab) {
         chrome.tabs.update(bgTab.id, { url: withBgHash(msg.url) });
       } else {
-        chrome.tabs.create({ url: withBgHash(msg.url), pinned: true, active: false });
+        chrome.tabs.create({ url: withBgHash(msg.url), active: false });
       }
     } else {
       // focusHome：让来源标签暂停视频，然后聚焦已有主页标签；没有主页标签则新建
