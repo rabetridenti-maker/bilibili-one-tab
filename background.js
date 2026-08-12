@@ -94,3 +94,20 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
   });
 });
+
+// 启动扫描（service worker 每次唤醒时执行）：
+// 覆盖"扩展更新前就已打开的主页标签"——onUpdated 不会对它们触发，
+// 这里按窗口处理：主页标签自动固定，多余主页标签清理（每个窗口只保留一个）
+chrome.tabs.query({}, (tabs) => {
+  const byWindow = new Map();
+  tabs.forEach((t) => {
+    if (classify(t.url) !== 'home') return;
+    if (!byWindow.has(t.windowId)) byWindow.set(t.windowId, []);
+    byWindow.get(t.windowId).push(t);
+  });
+  byWindow.forEach((homes) => {
+    const keep = homes[0];
+    if (!keep.pinned) chrome.tabs.update(keep.id, { pinned: true });
+    homes.slice(1).forEach((t) => chrome.tabs.remove(t.id));
+  });
+});
