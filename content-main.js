@@ -71,17 +71,18 @@ window.open = function (url, name, features) {
   return origOpen.apply(this, arguments);
 };
 
-// ===== 视频页"后台播放"按钮 =====
-// 把当前视频放进后台槽位（Pin、不聚焦），前台继续刷视频/干别的，后台照常放
-function injectBgPlayButton() {
-  if (isHomePage() || document.getElementById('bst-bgplay-btn')) return;
-  const btn = document.createElement('button');
-  btn.id = 'bst-bgplay-btn';
-  btn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
-  Object.assign(btn.style, {
+// ===== 视频页操作按钮组：右下角「♪ 后台播放」+「画中画」=====
+// - 后台播放：把当前视频放进后台槽位（Pin、不聚焦），前台继续刷
+// - 画中画：视频弹出悬浮小窗，可与其他视频/页面同屏观看（YouTube 同款）
+
+function makeFloatButton(id, text, bottom) {
+  const b = document.createElement('button');
+  b.id = id;
+  b.textContent = text;
+  Object.assign(b.style, {
     position: 'fixed',
     right: '16px',
-    bottom: '100px',
+    bottom: bottom + 'px',
     zIndex: '2147483647',
     background: '#00A1D6',
     color: '#ffffff',
@@ -93,18 +94,41 @@ function injectBgPlayButton() {
     boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
     fontFamily: 'inherit',
   });
-  btn.addEventListener('click', () => {
+  return b;
+}
+
+function injectButtons() {
+  if (isHomePage() || document.getElementById('bst-bgplay-btn')) return;
+
+  const bgBtn = makeFloatButton('bst-bgplay-btn', location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放', 100);
+  bgBtn.addEventListener('click', () => {
     request('bgPlay', location.href);
-    btn.textContent = '✓ 已加入后台';
+    bgBtn.textContent = '✓ 已加入后台';
     setTimeout(() => {
-      btn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
+      bgBtn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
     }, 1500);
   });
-  (document.body || document.documentElement).appendChild(btn);
+
+  const pipBtn = makeFloatButton('bst-pip-btn', '画中画', 150);
+  pipBtn.addEventListener('click', async () => {
+    const v = document.querySelector('video');
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await v.requestPictureInPicture();
+      }
+    } catch {
+      /* 播放器未就绪等场景，忽略 */
+    }
+  });
+
+  (document.body || document.documentElement).append(bgBtn, pipBtn);
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectBgPlayButton, { once: true });
+  document.addEventListener('DOMContentLoaded', injectButtons, { once: true });
 } else {
-  injectBgPlayButton();
+  injectButtons();
 }
