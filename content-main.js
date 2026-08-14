@@ -88,6 +88,25 @@ window.open = function (url, name, features) {
   return origOpen.apply(this, arguments);
 };
 
+// 拦截 SPA 路由导航（history.pushState / replaceState）：
+// B站动态/搜索等页内点视频可能不走链接点击，而是 SPA 路由跳转
+// （动态 tab 被导航成视频页 = "被吃掉"）。这里在导航前检查目标 URL，
+// 若是视频内容且当前页不是视频页 → 阻止 SPA 导航，转发给视频标签。
+function hookHistory(method, orig) {
+  history[method] = function (state, title, url) {
+    if (typeof url === 'string') {
+      const target = new URL(url, location.href).href;
+      if (isInternal(target) && isVideoUrl(target) && !isVideoPage()) {
+        request('openVideo', target);
+        return; // 阻止动态页被导航走
+      }
+    }
+    return orig.apply(this, arguments);
+  };
+}
+hookHistory('pushState', history.pushState);
+hookHistory('replaceState', history.replaceState);
+
 // ===== 视频页操作按钮组：右下角「♪ 后台播放」+「画中画」=====
 // - 后台播放：把当前视频放进后台槽位（Pin、不聚焦），前台继续刷
 // - 画中画：视频弹出悬浮小窗，可与其他视频/页面同屏观看（YouTube 同款）
