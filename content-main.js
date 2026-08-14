@@ -129,6 +129,41 @@ function hookHistory(method, orig) {
 hookHistory('pushState', history.pushState);
 hookHistory('replaceState', history.replaceState);
 
+// 拦截 JS 直接导航：location.href = xxx / location.assign() / location.replace()
+// B站动态页的视频卡片可能是 JS 直接改 location 跳转（不走链接点击、不走路由），
+// 这是最后一条导航通道，堵上后动态页不会再被视频吃掉。
+function guardLocationNav(target) {
+  if (typeof target !== 'string') return false;
+  const url = new URL(target, location.href).href;
+  if (isInternal(url) && isVideoUrl(url) && !isVideoPage()) {
+    // [debug] 临时日志
+    console.log('[BST] location-nav ->', url);
+    request('openVideo', url);
+    return true;
+  }
+  return false;
+}
+const origAssign = Location.prototype.assign;
+Location.prototype.assign = function (url) {
+  if (guardLocationNav(url)) return;
+  return origAssign.call(this, url);
+};
+const origReplace = Location.prototype.replace;
+Location.prototype.replace = function (url) {
+  if (guardLocationNav(url)) return;
+  return origReplace.call(this, url);
+};
+const hrefDesc = Object.getOwnPropertyDescriptor(Location.prototype, 'href');
+if (hrefDesc && hrefDesc.set) {
+  Object.defineProperty(Location.prototype, 'href', {
+    get: hrefDesc.get,
+    set(v) {
+      if (!guardLocationNav(v)) hrefDesc.set.call(this, v);
+    },
+    configurable: true,
+  });
+}
+
 // ===== 视频页操作按钮组：右下角「♪ 后台播放」+「画中画」=====
 // - 后台播放：把当前视频放进后台槽位（Pin、不聚焦），前台继续刷
 // - 画中画：视频弹出悬浮小窗，可与其他视频/页面同屏观看（YouTube 同款）
