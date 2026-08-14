@@ -55,11 +55,33 @@ function request(type, url) {
 document.addEventListener(
   'click',
   (e) => {
-    const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    // 用 composedPath 查找链接（B站新版组件用 Shadow DOM，target.closest 会失败）
+    let a = null;
+    if (e.target && e.target.closest) {
+      a = e.target.closest('a[href]');
+    }
+    if (!a) {
+      const path = e.composedPath ? e.composedPath() : [];
+      for (const el of path) {
+        if (el && el.tagName === 'A' && el.getAttribute && el.getAttribute('href')) {
+          a = el;
+          break;
+        }
+      }
+    }
     if (!a) return;
     const raw = a.getAttribute('href');
     if (!raw || !isInternal(raw)) return;
     const url = new URL(raw, location.href).href;
+
+    // [debug] 临时日志：确认拦截决策
+    console.log(
+      '[BST] click:',
+      url,
+      '| home:', isHomeUrl(url),
+      '| videoPage:', isVideoPage(),
+      '| videoUrl:', isVideoUrl(url)
+    );
 
     if (isHomeUrl(url)) {
       // 目标是主页：聚焦已有主页标签，不导航当前标签
