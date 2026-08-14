@@ -31,7 +31,7 @@ content-bridge.js # isolated world：postMessage → chrome.runtime 消息桥
 
 ## 原理
 
-1. MAIN world 脚本捕获主页上的站内链接点击（capture 阶段 `preventDefault`），并拦截 `window.open` 站内 URL
+1. MAIN world 脚本捕获**非视频页**（主页/动态/搜索/分区等）上的**视频类链接**点击（capture 阶段 `preventDefault`），并拦截 `window.open` 站内视频 URL
 2. 通过 `window.postMessage` 把目标 URL 交给 isolated world 桥接脚本
 3. 桥接脚本转发 `chrome.runtime.sendMessage` 给 background
 4. background 在当前窗口查找已有视频标签：有则 `tabs.update` 导航并聚焦，无则新建（Pin）

@@ -27,14 +27,31 @@ function isHomePage() {
   return isHomeUrl(location.href);
 }
 
+// 视频类 URL：视频/番剧/直播/收藏夹/稍后再看等播放内容（b23.tv 短链通常指向视频）
+function isVideoUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'b23.tv') return true;
+    if (!INTERNAL_HOST.test(u.hostname)) return false;
+    return /^\/(video|bangumi|live|medialist|list|cheese)\//.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+// 当前页是否为视频播放页
+function isVideoPage() {
+  return isVideoUrl(location.href);
+}
+
 function request(type, url) {
   window.postMessage({ source: BST_SOURCE, type, url }, '*');
 }
 
 // 拦截站内链接点击：
 // - 任何页面点击"回主页"链接（logo 等）→ focusHome：聚焦已有主页标签，当前标签保留
-// - 主页点击其他站内链接 → openVideo：复用视频标签（主页自身永不导航）
-// - 视频页点击其他站内链接 → 放行默认导航（在视频标签内切换）
+// - 非视频页（主页/动态/搜索/分区等）点击视频类链接 → openVideo：复用视频标签，当前页保留
+// - 其余（视频页内换视频、动态页内切动态、点菜单等）→ 放行默认导航
 document.addEventListener(
   'click',
   (e) => {
@@ -51,8 +68,8 @@ document.addEventListener(
       request('focusHome', url);
       return;
     }
-    if (isHomePage()) {
-      // 主页上点视频等站内链接：复用视频标签
+    if (!isVideoPage() && isVideoUrl(url)) {
+      // 当前不是视频页 + 目标是视频内容：复用视频标签，当前页（动态/搜索等）保留
       e.preventDefault();
       e.stopPropagation();
       request('openVideo', url);
@@ -61,10 +78,10 @@ document.addEventListener(
   true
 );
 
-// 拦截 window.open 站内 URL（主页和内容页都处理：一律复用视频标签）
+// 拦截 window.open 站内视频 URL：复用视频标签；非视频站内 URL 保持原行为
 const origOpen = window.open;
 window.open = function (url, name, features) {
-  if (typeof url === 'string' && isInternal(url)) {
+  if (typeof url === 'string' && isInternal(url) && isVideoUrl(url)) {
     request('openVideo', new URL(url, location.href).href);
     return null;
   }
@@ -98,7 +115,7 @@ function makeFloatButton(id, text, bottom) {
 }
 
 function injectButtons() {
-  if (isHomePage() || document.getElementById('bst-bgplay-btn')) return;
+  if (!isVideoPage() || document.getElementById('bst-bgplay-btn')) return;
 
   const bgBtn = makeFloatButton('bst-bgplay-btn', location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放', 100);
   bgBtn.addEventListener('click', () => {
