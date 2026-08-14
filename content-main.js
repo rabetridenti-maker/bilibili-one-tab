@@ -77,15 +77,6 @@ document.addEventListener(
     if (!raw || !isInternal(raw)) return;
     const url = new URL(raw, location.href).href;
 
-    // [debug] 临时日志：确认拦截决策
-    console.log(
-      '[BST] click:',
-      url,
-      '| home:', isHomeUrl(url),
-      '| videoPage:', isVideoPage(),
-      '| videoUrl:', isVideoUrl(url)
-    );
-
     if (isHomeUrl(url)) {
       // 目标是主页：聚焦已有主页标签，不导航当前标签
       e.preventDefault();
@@ -139,8 +130,6 @@ function guardLocationNav(target) {
   if (typeof target !== 'string') return false;
   const url = new URL(target, location.href).href;
   if (isInternal(url) && isVideoUrl(url) && !isVideoPage()) {
-    // [debug] 临时日志
-    console.log('[BST] location-nav ->', url);
     request('openVideo', url);
     return true;
   }
