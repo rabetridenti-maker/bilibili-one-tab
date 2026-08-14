@@ -5,6 +5,9 @@
 const BST_SOURCE = 'bilibili-single-tab';
 const INTERNAL_HOST = /(^|\.)bilibili\.com$/i;
 
+// 自检标志：F12 Console 输入 window.__BST__ 可确认扩展脚本已注入
+window.__BST__ = { version: '2.1.10', injected: true, url: location.href };
+
 function isInternal(url) {
   try {
     const u = new URL(url, location.href);
