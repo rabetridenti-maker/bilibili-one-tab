@@ -1,14 +1,148 @@
-// Bilibili Single Tab v2 - MAIN world content script
-// 在页面世界运行：拦截主页上的站内链接点击和 window.open，
-// 通过 postMessage 通知 isolated world 的桥接脚本，由 background 复用视频标签。
+// Bilibili Single Tab v2.3 - MAIN world content script
+//
+// 导航模型：
+//   主页 / 动态 / 搜索 各自常驻一个标签（同类页面之间导航在原标签内进行）
+//   视频 → 全局唯一的视频标签（始终复用）
+//   视频页点左上角 logo → 切回来源标签（原页面原样保留，不重新加载）
+//   视频页点 主页/动态/搜索 → 聚焦已有的同类标签，没有才新建
+//
+// 已移除（v2.3）：后台播放槽位（#bst-bg）、画中画按钮。
 
 const BST_SOURCE = 'bilibili-single-tab';
 const INTERNAL_HOST = /(^|\.)bilibili\.com$/i;
+const VIDEO_PATH_RE = /^\/(video|bangumi|live|medialist|list|cheese)\//;
+// 各自最多一个标签的页面类型（与 background.js 保持一致）
+const UNIQUE_KINDS = ['home', 'dynamic', 'search'];
 
 // 自检标志：F12 Console 输入 window.__BST__ 可确认扩展脚本已注入
-window.__BST__ = { version: '2.1.10', injected: true, url: location.href };
+window.__BST__ = {
+  version: '2.3.0',
+  injected: true,
+  url: location.href,
+  kindOf,
+  isVideoPage,
+  decide,
+};
 
-function isInternal(url) {
+// URL 分类：video / home / dynamic / search / page（其它站内页）/ external
+function kindOf(url) {
+  let u;
+  try {
+    u = new URL(url, location.href);
+  } catch {
+    return 'external';
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === 'b23.tv') return 'video';
+  if (!INTERNAL_HOST.test(host)) return 'external';
+  if (VIDEO_PATH_RE.test(u.pathname)) return 'video';
+  if (host === 't.bilibili.com' || u.pathname.startsWith('/dynamic')) return 'dynamic';
+  if (u.pathname.startsWith('/search')) return 'search';
+  if ((host === 'bilibili.com' || host === 'www.bilibili.com') && u.pathname === '/') return 'home';
+  return 'page';
+}
+
+function isVideoUrl(url) {
+  return kindOf(url) === 'video';
+}
+
+// 当前页是否为视频播放页
+function isVideoPage() {
+  return isVideoUrl(location.href);
+}
+
+// 这次导航要不要接管？返回 'openVideo' / 'openPage' / null（null = 放行默认导航）
+//   目标视频 + 当前不是视频页            → 交给唯一的视频标签
+//   目标是 主页/动态/搜索 + 与当前页不同类 → 交给那个类型的专属标签
+//   其余（同类页面之间、分区等其它站内页、外链）→ 放行
+function decide(targetUrl) {
+  const kind = kindOf(targetUrl);
+  if (kind === 'external') return null;
+  const cur = kindOf(location.href);
+  if (kind === 'video') return cur === 'video' ? null : 'openVideo';
+  if (UNIQUE_KINDS.includes(kind) && kind !== cur) return 'openPage';
+  return null;
+}
+
+function request(type, url) {
+  window.postMessage({ source: BST_SOURCE, type, url }, '*');
+}
+
+// 从事件里找出被点击的链接（B站新版组件用 Shadow DOM，target.closest 会失败）
+function findAnchor(e) {
+  const path = e.composedPath ? e.composedPath() : [];
+  if (e.target && e.target.closest) {
+    const a = e.target.closest('a[href]');
+    if (a) return a;
+  }
+  for (const el of path) {
+    if (el && el.tagName === 'A' && el.getAttribute && el.getAttribute('href')) return el;
+  }
+  return null;
+}
+
+// 是否点的是左上角的 bilibili logo（回"来源页"的意思）
+// 实测新版顶栏：<a href="//www.bilibili.com" class="left-entry__item-trigger">
+//                 <div class="big-logo has-switch trigger-icon"><svg …/></div></a>
+// 真实点击落在 svg 上 → class 在事件路径里；合成点击落在 a 上 → class 在子元素里。两头都认。
+function hasLogoClass(el) {
+  return !!(el && el.getAttribute && /logo/i.test(el.getAttribute('class') || ''));
+}
+
+function isLogoClick(e, a) {
+  if (hasLogoClass(a)) return true;
+  if (a.querySelector && a.querySelector('[class*="logo" i]')) return true;
+  const path = e.composedPath ? e.composedPath() : [];
+  return path.some(hasLogoClass);
+}
+
+// 拦截站内链接点击
+document.addEventListener(
+  'click',
+  (e) => {
+    // 中键 / Ctrl+点击 保持浏览器原生行为（后台新开标签）
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const a = findAnchor(e);
+    if (!a) return;
+    const raw = a.getAttribute('href');
+    if (!raw) return;
+
+    let url;
+    try {
+      url = new URL(raw, location.href).href;
+    } catch {
+      return;
+    }
+    if (!INTERNAL_HOST.test(new URL(url).hostname)) return;
+
+    // 视频页点左上角 logo → 回到来源页（动态/搜索/主页，原样保留）
+    if (isVideoPage() && kindOf(url) === 'home' && isLogoClick(e, a)) {
+      e.preventDefault();
+      e.stopPropagation();
+      request('goBack');
+      return;
+    }
+
+    const action = decide(url);
+    if (action) {
+      e.preventDefault();
+      e.stopPropagation();
+      request(action, url);
+    }
+  },
+  true
+);
+
+// 拦截 window.open 打开站内视频：交给唯一的视频标签；其它 URL 保持原行为
+const origOpen = window.open;
+window.open = function (url, name, features) {
+  if (typeof url === 'string' && isInternalUrl(url) && isVideoUrl(url) && !isVideoPage()) {
+    request('openVideo', new URL(url, location.href).href);
+    return null;
+  }
+  return origOpen.apply(this, arguments);
+};
+function isInternalUrl(url) {
   try {
     const u = new URL(url, location.href);
     return INTERNAL_HOST.test(u.hostname) || u.hostname === 'b23.tv';
@@ -17,104 +151,23 @@ function isInternal(url) {
   }
 }
 
-function isHomeUrl(url) {
-  try {
-    const u = new URL(url);
-    return (u.hostname === 'bilibili.com' || u.hostname === 'www.bilibili.com') && u.pathname === '/';
-  } catch {
-    return false;
-  }
-}
-
-function isHomePage() {
-  return isHomeUrl(location.href);
-}
-
-// 视频类 URL：视频/番剧/直播/收藏夹/稍后再看等播放内容（b23.tv 短链通常指向视频）
-function isVideoUrl(url) {
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'b23.tv') return true;
-    if (!INTERNAL_HOST.test(u.hostname)) return false;
-    return /^\/(video|bangumi|live|medialist|list|cheese)\//.test(u.pathname);
-  } catch {
-    return false;
-  }
-}
-
-// 当前页是否为视频播放页
-function isVideoPage() {
-  return isVideoUrl(location.href);
-}
-
-function request(type, url) {
-  window.postMessage({ source: BST_SOURCE, type, url }, '*');
-}
-
-// 拦截站内链接点击：
-// - 任何页面点击"回主页"链接（logo 等）→ focusHome：聚焦已有主页标签，当前标签保留
-// - 非视频页（主页/动态/搜索/分区等）点击视频类链接 → openVideo：复用视频标签，当前页保留
-// - 其余（视频页内换视频、动态页内切动态、点菜单等）→ 放行默认导航
-document.addEventListener(
-  'click',
-  (e) => {
-    // 用 composedPath 查找链接（B站新版组件用 Shadow DOM，target.closest 会失败）
-    let a = null;
-    if (e.target && e.target.closest) {
-      a = e.target.closest('a[href]');
-    }
-    if (!a) {
-      const path = e.composedPath ? e.composedPath() : [];
-      for (const el of path) {
-        if (el && el.tagName === 'A' && el.getAttribute && el.getAttribute('href')) {
-          a = el;
-          break;
-        }
-      }
-    }
-    if (!a) return;
-    const raw = a.getAttribute('href');
-    if (!raw || !isInternal(raw)) return;
-    const url = new URL(raw, location.href).href;
-
-    if (isHomeUrl(url)) {
-      // 目标是主页：聚焦已有主页标签，不导航当前标签
-      e.preventDefault();
-      e.stopPropagation();
-      request('focusHome', url);
-      return;
-    }
-    if (!isVideoPage() && isVideoUrl(url)) {
-      // 当前不是视频页 + 目标是视频内容：复用视频标签，当前页（动态/搜索等）保留
-      e.preventDefault();
-      e.stopPropagation();
-      request('openVideo', url);
-    }
-  },
-  true
-);
-
-// 拦截 window.open 站内视频 URL：复用视频标签；非视频站内 URL 保持原行为
-const origOpen = window.open;
-window.open = function (url, name, features) {
-  if (typeof url === 'string' && isInternal(url) && isVideoUrl(url)) {
-    request('openVideo', new URL(url, location.href).href);
-    return null;
-  }
-  return origOpen.apply(this, arguments);
-};
-
 // 拦截 SPA 路由导航（history.pushState / replaceState）：
-// B站动态/搜索等页内点视频可能不走链接点击，而是 SPA 路由跳转
-// （动态 tab 被导航成视频页 = "被吃掉"）。这里在导航前检查目标 URL，
-// 若是视频内容且当前页不是视频页 → 阻止 SPA 导航，转发给视频标签。
+// 动态/搜索/主页里的跳转可能不走链接点击，而是 SPA 路由（否则会把来源页吃掉）
 function hookHistory(method, orig) {
   history[method] = function (state, title, url) {
     if (typeof url === 'string') {
-      const target = new URL(url, location.href).href;
-      if (isInternal(target) && isVideoUrl(target) && !isVideoPage()) {
-        request('openVideo', target);
-        return; // 阻止动态页被导航走
+      let target;
+      try {
+        target = new URL(url, location.href).href;
+      } catch {
+        target = null;
+      }
+      if (target) {
+        const action = decide(target);
+        if (action) {
+          request(action, target);
+          return; // 阻止当前页被导航走
+        }
       }
     }
     return orig.apply(this, arguments);
@@ -124,13 +177,18 @@ hookHistory('pushState', history.pushState);
 hookHistory('replaceState', history.replaceState);
 
 // 拦截 JS 直接导航：location.href = xxx / location.assign() / location.replace()
-// B站动态页的视频卡片可能是 JS 直接改 location 跳转（不走链接点击、不走路由），
-// 这是最后一条导航通道，堵上后动态页不会再被视频吃掉。
+// （最后一条导航通道，堵上后来源页不会被视频/其它页面吃掉）
 function guardLocationNav(target) {
   if (typeof target !== 'string') return false;
-  const url = new URL(target, location.href).href;
-  if (isInternal(url) && isVideoUrl(url) && !isVideoPage()) {
-    request('openVideo', url);
+  let url;
+  try {
+    url = new URL(target, location.href).href;
+  } catch {
+    return false;
+  }
+  const action = decide(url);
+  if (action) {
+    request(action, url);
     return true;
   }
   return false;
@@ -154,66 +212,4 @@ if (hrefDesc && hrefDesc.set) {
     },
     configurable: true,
   });
-}
-
-// ===== 视频页操作按钮组：右下角「♪ 后台播放」+「画中画」=====
-// - 后台播放：把当前视频放进后台槽位（Pin、不聚焦），前台继续刷
-// - 画中画：视频弹出悬浮小窗，可与其他视频/页面同屏观看（YouTube 同款）
-
-function makeFloatButton(id, text, bottom) {
-  const b = document.createElement('button');
-  b.id = id;
-  b.textContent = text;
-  Object.assign(b.style, {
-    position: 'fixed',
-    right: '16px',
-    bottom: bottom + 'px',
-    zIndex: '2147483647',
-    background: '#00A1D6',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '999px',
-    padding: '8px 14px',
-    fontSize: '13px',
-    cursor: 'pointer',
-    boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
-    fontFamily: 'inherit',
-  });
-  return b;
-}
-
-function injectButtons() {
-  if (!isVideoPage() || document.getElementById('bst-bgplay-btn')) return;
-
-  const bgBtn = makeFloatButton('bst-bgplay-btn', location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放', 100);
-  bgBtn.addEventListener('click', () => {
-    request('bgPlay', location.href);
-    bgBtn.textContent = '✓ 已加入后台';
-    setTimeout(() => {
-      bgBtn.textContent = location.hash === '#bst-bg' ? '♪ 后台播放中' : '♪ 后台播放';
-    }, 1500);
-  });
-
-  const pipBtn = makeFloatButton('bst-pip-btn', '画中画', 150);
-  pipBtn.addEventListener('click', async () => {
-    const v = document.querySelector('video');
-    if (!v) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await v.requestPictureInPicture();
-      }
-    } catch {
-      /* 播放器未就绪等场景，忽略 */
-    }
-  });
-
-  (document.body || document.documentElement).append(bgBtn, pipBtn);
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectButtons, { once: true });
-} else {
-  injectButtons();
 }

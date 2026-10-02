@@ -1,103 +1,162 @@
-// Bilibili Single Tab v2.1.4 - background service worker
-// 职责：
-// - 前台视频槽位（复用，Pin）
-// - 后台播放槽位（#bst-bg 标记，Pin 不聚焦）——刷视频的同时后台放音乐
-// - focusHome：聚焦已有主页标签（仅聚焦，不固定、不关闭、不单例）
-// 主页标签完全交给用户/浏览器管理，扩展不主动操作主页标签。
+// Bilibili Single Tab v2.3 - background service worker
+//
+// 标签模型（每种页面类型最多一个标签）：
+//   主页标签 / 动态标签 / 搜索标签 —— 常驻，不会被别的页面导航走
+//   视频标签 —— 全局唯一，始终复用
+//   B 站最多 4 个标签：主页 + 动态 + 搜索 + 当前视频（用到的页面各一个，不重复开）
+//
+// 消息：
+//   openVideo(url)  从非视频页点视频 → 复用唯一的视频标签，并记录它的「来源标签」
+//   goBack()        视频页点左上角 logo → 切回来源标签（来源页原样保留，不重新加载）
+//   openPage(url)   点 主页/动态/搜索 → 聚焦已有的同类标签，没有才新建；当前页保留
+//
+// 已移除（v2.3）：后台播放槽位（#bst-bg）、画中画按钮 —— 见 content-main.js 头部说明
 
-const BG_HASH = '#bst-bg';
+const VIDEO_RE = /^\/(video|bangumi|live|medialist|list|cheese)\//;
+const INTERNAL_RE = /(^|\.)bilibili\.com$/i;
+// 每种类型最多一个的页面
+const UNIQUE_KINDS = ['home', 'dynamic', 'search'];
+const BROWSING_KINDS = ['home', 'dynamic', 'search', 'page'];
 
-// URL 分类：home（B站主页）/ content（视频、番剧、直播等非主页站内页）/ other
-function classify(url) {
+// URL 分类：video / home / dynamic / search / page（其它站内页）/ external
+function kindOf(url) {
+  let u;
   try {
-    const u = new URL(url);
-    const host = u.hostname;
-    if (host === 'bilibili.com' || host === 'www.bilibili.com') {
-      return u.pathname === '/' ? 'home' : 'content';
-    }
-    if (host.endsWith('.bilibili.com') || host === 'b23.tv') return 'content';
+    u = new URL(url || '');
+  } catch {
+    return 'external';
+  }
+  const host = u.hostname.toLowerCase();
+  if (host === 'b23.tv') return 'video';
+  if (!INTERNAL_RE.test(host)) return 'external';
+  if (VIDEO_RE.test(u.pathname)) return 'video';
+  if (host === 't.bilibili.com' || u.pathname.startsWith('/dynamic')) return 'dynamic';
+  if (u.pathname.startsWith('/search')) return 'search';
+  if ((host === 'bilibili.com' || host === 'www.bilibili.com') && u.pathname === '/') return 'home';
+  return 'page';
+}
+
+// 标签当前属于哪类页面（加载中的标签只有 pendingUrl）
+const tabKind = (t) => kindOf(t && (t.url || t.pendingUrl));
+
+// ── 「视频标签 → 来源标签」映射 ──
+// 存在 storage.session：service worker 被回收重启后仍记得来源（浏览器重启后失效，id 已无意义）
+async function getSources() {
+  try {
+    const got = await chrome.storage.session.get('sources');
+    return got.sources || {};
+  } catch {
+    return {};
+  }
+}
+
+async function setSource(videoTabId, sourceTabId) {
+  try {
+    const s = await getSources();
+    s[videoTabId] = sourceTabId;
+    await chrome.storage.session.set({ sources: s });
   } catch {
     /* ignore */
   }
-  return 'other';
 }
 
-// 后台播放标签：content 且 URL 带 #bst-bg 标记
-function isBgTab(tab) {
+async function forgetTab(tabId) {
   try {
-    return new URL(tab.url).hash === BG_HASH;
+    const s = await getSources();
+    let dirty = false;
+    if (tabId in s) {
+      delete s[tabId];
+      dirty = true;
+    }
+    for (const [k, v] of Object.entries(s)) {
+      if (v === tabId) {
+        delete s[k];
+        dirty = true;
+      }
+    }
+    if (dirty) await chrome.storage.session.set({ sources: s });
   } catch {
-    return false;
+    /* ignore */
   }
 }
 
-// 视频页 URL 判断（与 content-main.js 的 isVideoUrl 保持一致）
-const VIDEO_RE = /^\/(video|bangumi|live|medialist|list|cheese)\//;
-function isVideoUrl2(url) {
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'b23.tv') return true;
-    if (!/(^|\.)bilibili\.com$/i.test(u.hostname)) return false;
-    return VIDEO_RE.test(u.pathname);
-  } catch {
-    return false;
+function queryTabs(from) {
+  const q =
+    from && from.windowId != null ? { windowId: from.windowId } : { lastFocusedWindow: true };
+  return chrome.tabs.query(q);
+}
+
+// 离开视频页时暂停播放（不再有后台播放/画中画）
+function pauseVideo(tabId) {
+  chrome.tabs.sendMessage(tabId, { type: 'pauseVideo' }).catch(() => {});
+}
+
+// 从非视频页点视频：复用唯一的视频标签，并记下来源标签
+async function openVideo(url, from) {
+  const tabs = await queryTabs(from);
+  const reused = tabs.find((t) => tabKind(t) === 'video' && (!from || t.id !== from.id));
+  if (reused) {
+    await chrome.tabs.update(reused.id, { url, active: true });
+    if (from) await setSource(reused.id, from.id);
+  } else {
+    const created = await chrome.tabs.create({ url, active: true });
+    if (from) await setSource(created.id, from.id);
   }
 }
 
-// 视频槽位标签：content 分类、非后台槽位、且当前 URL 就是视频页
-// 关键：收藏/动态/搜索等页面虽然也是 content，但绝不是视频槽位，
-// 不能被 openVideo 复用（否则点击视频会把这些页面导航成视频 = 页面被吞）
-function findVideoTab(tabs) {
-  return tabs.find((t) => classify(t.url) === 'content' && !isBgTab(t) && isVideoUrl2(t.url));
+// 视频页点左上角 logo：切回来源标签，视频标签留着（暂停）供下次复用
+async function goBack(from) {
+  if (!from) return;
+  const tabs = await queryTabs(from);
+  const sources = await getSources();
+  const srcId = sources[from.id];
+
+  let target = null;
+  if (srcId != null && srcId !== from.id) target = tabs.find((t) => t.id === srcId) || null;
+  // 来源标签已被关掉：退而求其次，找任意一个浏览标签
+  if (!target) {
+    target = tabs.find((t) => t.id !== from.id && BROWSING_KINDS.includes(tabKind(t))) || null;
+  }
+
+  pauseVideo(from.id);
+  if (target) await chrome.tabs.update(target.id, { active: true });
+  // 没有任何浏览标签（例如从站外链接直接打开的视频）→ 视频标签自己回主页
+  else await chrome.tabs.update(from.id, { url: 'https://www.bilibili.com/' });
 }
 
-function findTab(tabs, kind, excludeBg = false) {
-  return tabs.find((t) => classify(t.url) === kind && (!excludeBg || !isBgTab(t)));
-}
+// 点 主页/动态/搜索：聚焦已有的同类标签（各类型只保留一个），没有才新建；当前页保留
+async function openPage(url, from) {
+  const kind = kindOf(url);
+  if (!UNIQUE_KINDS.includes(kind)) return;
 
-function withBgHash(url) {
-  try {
-    const u = new URL(url);
-    u.hash = BG_HASH.slice(1);
-    return u.href;
-  } catch {
-    return url + BG_HASH;
+  const tabs = await queryTabs(from);
+  const others = tabs.filter((t) => !from || t.id !== from.id);
+  const fromIsVideo = !!from && tabKind(from) === 'video';
+
+  // 已经有同类页面 → 聚焦它（不再新开：动态/搜索/主页各保持只有一个）
+  let target = others.find((t) => tabKind(t) === kind) || null;
+  if (!target) {
+    target = await chrome.tabs.create({ url, active: true });
+  } else {
+    await chrome.tabs.update(target.id, { active: true });
+  }
+
+  if (fromIsVideo) {
+    pauseVideo(from.id);
+    // 视频是从这个浏览标签"走到"的，之后点 logo 就回到它
+    if (target && target.id != null) await setSource(from.id, target.id);
   }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (!msg || !['openVideo', 'bgPlay', 'focusHome'].includes(msg.type)) return;
-  chrome.tabs.query({ currentWindow: true }, (tabs) => {
-    if (msg.type === 'openVideo') {
-      // 前台槽位：只复用"当前就是视频页"的标签；没有则新建
-      // （收藏/动态/搜索页等 content 页面不会被复用，点击视频不会吃掉它们）
-      const contentTab = findVideoTab(tabs);
-      if (contentTab) {
-        chrome.tabs.update(contentTab.id, { url: msg.url, active: true });
-      } else {
-        chrome.tabs.create({ url: msg.url, active: true });
-      }
-    } else if (msg.type === 'bgPlay') {
-      // 后台槽位：复用 #bst-bg 且是视频页的标签（不聚焦）；没有则新建（后台打开）
-      const bgTab = tabs.find(
-        (t) => classify(t.url) === 'content' && isBgTab(t) && isVideoUrl2(t.url)
-      );
-      if (bgTab) {
-        chrome.tabs.update(bgTab.id, { url: withBgHash(msg.url) });
-      } else {
-        chrome.tabs.create({ url: withBgHash(msg.url), active: false });
-      }
-    } else {
-      // focusHome：让来源标签暂停视频，然后聚焦已有主页标签；没有主页标签则新建
-      if (sender.tab) {
-        chrome.tabs.sendMessage(sender.tab.id, { type: 'pauseVideo' }).catch(() => {});
-      }
-      const homeTab = findTab(tabs, 'home');
-      if (homeTab) {
-        chrome.tabs.update(homeTab.id, { active: true });
-      } else {
-        chrome.tabs.create({ url: 'https://www.bilibili.com/', active: true });
-      }
-    }
-  });
+  if (!msg || !msg.type) return;
+  const from = sender && sender.tab ? sender.tab : null;
+  if (msg.type === 'openVideo' && msg.url) openVideo(msg.url, from);
+  else if (msg.type === 'goBack') goBack(from);
+  else if (msg.type === 'openPage' && msg.url) openPage(msg.url, from);
+});
+
+// 标签关闭后清理来源映射，避免 id 复用导致"回到错误的标签"
+chrome.tabs.onRemoved.addListener((tabId) => {
+  forgetTab(tabId);
 });

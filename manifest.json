@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Bilibili Single Tab",
-  "version": "2.1.12",
-  "description": "主页标签常驻不动，视频在独立的单个标签中打开。B站最多占用两个标签：主页 + 当前视频。",
+  "version": "2.3.0",
+  "description": "视频在唯一标签中播放，点 logo 切回来源标签（动态/搜索/主页各保持一个）。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["tabs"],
+  "permissions": ["tabs", "storage"],
   "background": {
     "service_worker": "background.js"
   },
