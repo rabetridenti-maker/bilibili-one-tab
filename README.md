@@ -34,11 +34,22 @@ B 站每个常用页面**各占一个标签、互不抢占**：主页、动态�
 ## 文件结构
 
 ```
-manifest.json     # MV3 声明：background + 双 content script（MAIN / isolated）
-background.js     # 标签调度：视频标签复用、来源标签记忆、主页/动态/搜索各一个
-content-main.js   # MAIN world：拦截链接点击 / window.open / SPA 路由 / location 直接跳转
-content-bridge.js # isolated world：postMessage → chrome.runtime 消息桥
-tools/verify.mjs  # 真机验收脚本（Playwright + 本机 Edge，加载未打包扩展跑 40 条断言）
+manifest.json       # MV3 声明：background + 双 content script（MAIN / isolated）
+background.js       # 标签调度：视频标签复用、来源标签记忆、主页/动态/搜索各一个
+content-main.js     # MAIN world：拦截链接点击 / window.open / SPA 路由 / location 直接跳转
+content-bridge.js   # isolated world：postMessage → chrome.runtime 消息桥
+icons/              # 16 / 32 / 48 / 128 图标
+tools/verify.mjs    # 真机验收脚本（Playwright + 本机 Edge，加载未打包扩展跑 40 条断言）
+tools/make-icons.py # 图标生成脚本（Pillow，改配色/形状改这里重跑）
+```
+
+## 图标
+
+蓝 `#00A1D6` → 粉 `#FB7299` 对角渐变圆角方底，内嵌白色圆环 + 粉色播放三角，右下角「1」徽章
+（呼应「只留一个」）。16/32px 是**另一套简化版**（去徽章、圆环加粗、三角放大），否则缩成一团糊点。
+
+```bash
+python tools/make-icons.py     # 重新生成 icons/icon16|32|48|128.png
 ```
 
 ## 原理
