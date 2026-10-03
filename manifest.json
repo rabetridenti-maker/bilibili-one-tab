@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bilibili Single Tab",
-  "version": "2.3.0",
-  "description": "视频在唯一标签中播放，点 logo 切回来源标签（动态/搜索/主页各保持一个）。",
+  "version": "2.4.0",
+  "description": "视频在唯一标签中播放；视频页内跳别的视频可一键返回上个视频；点 logo 切回来源标签。",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",

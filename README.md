@@ -9,12 +9,25 @@ B 站每个常用页面**各占一个标签、互不抢占**：主页、动态�
 | --- | --- |
 | 主页 / 动态 / 搜索 里点视频卡片 | 视频在**唯一的视频标签**里打开（没有就新建，有就复用），来源页原地不动 |
 | 视频页点左上角 **bilibili logo** | 切回**来源标签**（从动态点开就回动态、从搜索点开就回搜索、从主页点开就回主页） |
+| 视频页里点推荐/简介里的**别的视频** | 原标签内换视频，并在播放器左上角出现「← 返回上个视频」按钮 |
+| 点「← 返回上个视频」 | 回到上一个视频（可连点，一层层往回退；退到起点按钮自动消失） |
 | 视频页点顶栏「动态」/「搜索」/「主页」 | 聚焦那个页面的**专属标签**，没有才新建；视频标签保留在后台 |
 | 主页点顶栏「动态」 | 复用已有的动态标签，不会越开越多 |
 | 离开视频页 | 视频自动暂停，不会在后台偷偷出声（点 logo 回来源页同样暂停） |
 | 点站外链接（淘宝、微博…） | 照常新开标签，扩展不干预 |
 
 **标签上限**：主页 1 + 动态 1 + 搜索 1 + 视频 1 = 最多 4 个（用到才开，没用到不开）。
+
+## 「返回上个视频」（v2.4）
+
+在视频页里点推荐位 / 简介里的别的视频，是 B 站自己的 SPA 原地换页（标签 id 不变），
+浏览器原生 `Alt+←` 本来也能回去——这个按钮只是给你一个更显眼的入口。
+
+- 位置：**播放器左上角内侧**（12px 内边距），不挡画面中央、不挡右侧推荐列表
+- 按钮右侧会带上一个视频标题（灰色的那截），告诉你「点下去会回到哪个视频」
+- 连点可以一层层往回退；退到起点（没有更早的视频）按钮自己隐藏
+- 视频历史存在 `sessionStorage`（键 `bst-videos`，最多 30 条，关标签即清），
+  只在**你刚点过东西**时才记录，脚本自己改 URL（换 P、加载）不会污染历史
 
 ## 已移除的功能（v2.3）
 
@@ -29,18 +42,20 @@ B 站每个常用页面**各占一个标签、互不抢占**：主页、动态�
 2. 右上角开启 **开发人员模式**
 3. 点击 **加载解压缩的扩展**，选择本仓库根目录
    - 已经装过旧版：在扩展卡片上点 **重新加载**，再刷新所有 B 站标签
-4. F12 Console 输入 `window.__BST__`，看到 `version: '2.3.0'` 说明注入成功
+4. F12 Console 输入 `window.__BST__`，看到 `version: '2.4.0'` 说明注入成功
 
 ## 文件结构
 
 ```
-manifest.json       # MV3 声明：background + 双 content script（MAIN / isolated）
-background.js       # 标签调度：视频标签复用、来源标签记忆、主页/动态/搜索各一个
-content-main.js     # MAIN world：拦截链接点击 / window.open / SPA 路由 / location 直接跳转
-content-bridge.js   # isolated world：postMessage → chrome.runtime 消息桥
-icons/              # 16 / 32 / 48 / 128 图标
-tools/verify.mjs    # 真机验收脚本（Playwright + 本机 Edge，加载未打包扩展跑 40 条断言）
-tools/make-icons.py # 图标生成脚本（Pillow，改配色/形状改这里重跑）
+manifest.json            # MV3 声明：background + 双 content script（MAIN / isolated）
+background.js            # 标签调度：视频标签复用、来源标签记忆、主页/动态/搜索各一个
+content-main.js          # MAIN world：拦截链接点击 / window.open / SPA 路由 / location 直接跳转
+                         #              + 视频历史栈与「返回上个视频」按钮
+content-bridge.js        # isolated world：postMessage → chrome.runtime 消息桥
+icons/                   # 16 / 32 / 48 / 128 图标
+tools/verify.mjs         # 标签模型验收（Playwright + 本机 Edge，40 条断言）
+tools/verify-back-btn.mjs# 「返回上个视频」验收（20 条断言）
+tools/make-icons.py      # 图标生成脚本（Pillow，改配色/形状改这里重跑）
 ```
 
 ## 图标

@@ -4,7 +4,7 @@
 // 运行： node tools/verify.mjs
 // 依赖： playwright（本机已装在 deepseek-harness 的 pnpm 目录里）+ 本机 Edge
 import { createRequire } from 'module';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 
@@ -153,7 +153,9 @@ try {
   const info = await homeP.evaluate(() =>
     window.__BST__ ? { v: window.__BST__.version, kind: window.__BST__.kindOf(location.href) } : null
   );
-  check('T1 主页注入 __BST__ 且版本 2.3.0', !!info && info.v === '2.3.0', JSON.stringify(info));
+  // 版本号跟着 manifest 走，改版本时不用动这个脚本
+  const wantVer = JSON.parse(readFileSync(resolve(EXT, 'manifest.json'), 'utf8')).version;
+  check(`T1 主页注入 __BST__ 且版本 ${wantVer}`, !!info && info.v === wantVer, JSON.stringify(info));
   const homeTab = biliTabs(await tabs()).find((t) => host(t.url) === 'www.bilibili.com' && path(t.url) === '/');
   console.log('   主页标签 id =', homeTab && homeTab.id);
 
